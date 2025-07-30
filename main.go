@@ -4,11 +4,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+}
+
+type requestStruct struct {
+	Body string `json:"body"`
+}
+
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+type validateResponse struct {
+	CleanedBody string `json:"cleaned_body"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -36,28 +49,50 @@ func healthzHadler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
-func validChirpyHandler(w http.ResponseWriter, r *http.Request) {
-	type requestStruct struct {
-		Body string `json:"body"`
+func respondWithError(w http.ResponseWriter, code int, msg string) {
+	respondWithJSON(w, code, errorResponse{Error: msg})
+}
+
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	encoder := json.NewEncoder(w)
+	encoder.Encode(payload)
+}
+
+func checkProfaneWords(str string) string {
+	if len(str) == 0 {
+		return str
+	}
+	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
+	slsWords := strings.Split(str, " ")
+	for i := range slsWords {
+		word := strings.ToLower(slsWords[i])
+		for j := range profaneWords {
+			if word == profaneWords[j] {
+				slsWords[i] = "****"
+			}
+		}
 	}
 
-	type responseStruct struct {
-		Error string `json:"error"`
-		Valid string `json:"valid"`
-	}
+	return strings.Join(slsWords, " ")
+}
+
+func validChirpyHandler(w http.ResponseWriter, r *http.Request) {
 
 	decoder := json.NewDecoder(r.Body)
 	requestData := requestStruct{}
 	err := decoder.Decode(&requestData)
-	response := responseStruct{}
 	if err != nil {
-		response.Error = "Something went wrong"
-		responseData, _ := json.Marshal(response)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write(responseData)
-
+		respondWithError(w, 400, "Invalid JSON")
+		return
 	}
+	if len(requestData.Body) > 140 {
+		respondWithError(w, 400, "Chirp is too long")
+		return
+	}
+	respondWithJSON(w, 200, validateResponse{CleanedBody: checkProfaneWords(requestData.Body)})
+
 }
 
 func main() {
@@ -74,7 +109,7 @@ func main() {
 
 	apiServerrMux := http.NewServeMux()
 	apiServerrMux.HandleFunc("GET /healthz", healthzHadler)
-	apiServerrMux.HandleFunc("POST /validate_chirp")
+	apiServerrMux.HandleFunc("POST /validate_chirp", validChirpyHandler)
 	serverMux.Handle("/api/", http.StripPrefix("/api", apiServerrMux))
 
 	server := http.Server{
