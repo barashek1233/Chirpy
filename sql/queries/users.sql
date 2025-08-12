@@ -31,3 +31,27 @@ SELECT *
 FROM users
 WHERE email = $1;
 --
+
+-- name: UserUpdatePasswd :exec
+UPDATE users
+SET hashed_password = $2
+WHERE id = $1;
+--
+
+-- name: UserUpdateEmail :exec
+UPDATE users
+SET email = $2
+WHERE id = $1;
+--
+
+-- name: GetUserForID :one
+SELECT *
+FROM users
+WHERE id = $1;
+--
+
+-- name: UpdgradeToRed :exec
+UPDATE users
+SET is_chirpy_red = TRUE
+WHERE id = $1;
+--
